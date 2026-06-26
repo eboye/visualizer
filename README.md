@@ -105,7 +105,14 @@ peaks/beats and faded with distance.
 | `src/dsp.rs` | Hann window → FFT → log-spaced spectrum + beat detection (`AudioFeatures`) |
 | `src/nowplaying.rs` | MPRIS/D-Bus thread reading the active player's artist/title |
 | `src/render.rs` | wgpu 3D terrain renderer + glyphon text overlay (`Renderer`) |
+| `src/config.rs` | persist accent / view / overlay mode / globe orbit between runs |
 | `src/shaders/terrain.wgsl` | 3D vertex (grid + heightmap) + fragment (accent lines) shader |
+
+## Saved settings
+
+The accent color, current view (terrain/globe), overlay mode, and globe orbit/zoom are saved
+on exit to `~/.config/visualizer/settings.conf` (or `$XDG_CONFIG_HOME/visualizer/`) and restored
+next run. A `--accent <name>` flag overrides the saved accent. Delete the file to reset.
 
 ## Now-playing overlay
 

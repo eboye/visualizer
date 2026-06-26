@@ -9,6 +9,7 @@
 //!        --accent <name> (neon-red|amber|green|cyan|violet|white)
 
 mod audio;
+mod config;
 mod dsp;
 mod nowplaying;
 mod render;
@@ -23,6 +24,7 @@ use winit::keyboard::{Key, NamedKey};
 use winit::window::{Fullscreen, Window, WindowId};
 
 use audio::AudioEngine;
+use config::Settings;
 use dsp::{Analyzer, AudioFeatures};
 use nowplaying::NowPlaying;
 use render::Renderer;
@@ -58,6 +60,20 @@ impl OverlayMode {
             OverlayMode::Occasional => "occasional",
             OverlayMode::Permanent => "permanent",
             OverlayMode::Never => "never",
+        }
+    }
+    fn from_u8(v: u8) -> Self {
+        match v {
+            1 => OverlayMode::Permanent,
+            2 => OverlayMode::Never,
+            _ => OverlayMode::Occasional,
+        }
+    }
+    fn to_u8(self) -> u8 {
+        match self {
+            OverlayMode::Occasional => 0,
+            OverlayMode::Permanent => 1,
+            OverlayMode::Never => 2,
         }
     }
 }
@@ -106,10 +122,12 @@ struct App {
     globe: bool,
     dragging: bool,
     last_cursor: Option<(f32, f32)>,
+    /// Saved globe orbit (yaw, pitch, zoom), applied to the renderer once created.
+    pending_orbit: (f32, f32, f32),
 }
 
 impl App {
-    fn new(engine: AudioEngine, accent: usize) -> Self {
+    fn new(engine: AudioEngine, accent: usize, settings: Settings) -> Self {
         let rate = engine.sample_rate();
         Self {
             window: None,
@@ -126,10 +144,28 @@ impl App {
             nowplaying: NowPlaying::start(),
             track: None,
             track_shown_at: Instant::now(),
-            overlay_mode: OverlayMode::Occasional,
-            globe: false,
+            overlay_mode: OverlayMode::from_u8(settings.overlay_mode),
+            globe: settings.globe,
             dragging: false,
             last_cursor: None,
+            pending_orbit: (settings.globe_yaw, settings.globe_pitch, settings.globe_zoom),
+        }
+    }
+
+    /// Build the current settings snapshot for persistence.
+    fn settings(&self) -> Settings {
+        let (globe_yaw, globe_pitch, globe_zoom) = self
+            .renderer
+            .as_ref()
+            .map(|r| r.globe_orbit())
+            .unwrap_or(self.pending_orbit);
+        Settings {
+            accent: self.accent,
+            globe: self.globe,
+            overlay_mode: self.overlay_mode.to_u8(),
+            globe_yaw,
+            globe_pitch,
+            globe_zoom,
         }
     }
 
@@ -185,8 +221,15 @@ impl ApplicationHandler for App {
                 ))
                 .expect("create window"),
         );
-        self.renderer = Some(Renderer::new(window.clone()));
+        let mut renderer = Renderer::new(window.clone());
+        let (yaw, pitch, zoom) = self.pending_orbit;
+        renderer.set_globe_orbit(yaw, pitch, zoom);
+        self.renderer = Some(renderer);
         self.window = Some(window);
+    }
+
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.settings().save();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -335,13 +378,16 @@ fn main() {
         return;
     }
 
-    // Resolve the starting accent from --accent <name> (default: neon-red).
+    // Persisted settings (accent, view, overlay, globe orbit) from the last run.
+    let settings = Settings::load();
+
+    // Accent: --accent <name> wins; otherwise the saved accent (clamped).
     let accent = args
         .iter()
         .position(|a| a == "--accent")
         .and_then(|i| args.get(i + 1))
         .and_then(|name| ACCENTS.iter().position(|(n, _)| n == name))
-        .unwrap_or(0);
+        .unwrap_or_else(|| settings.accent.min(ACCENTS.len() - 1));
 
     // Default to capturing system output; --mic captures the default input.
     let capture_system_output = !args.iter().any(|a| a == "--mic");
@@ -363,6 +409,6 @@ fn main() {
     let event_loop = EventLoop::new().expect("create event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = App::new(engine, accent);
+    let mut app = App::new(engine, accent, settings);
     event_loop.run_app(&mut app).expect("run app");
 }

@@ -305,6 +305,18 @@ impl Renderer {
         self.globe_zoom = (self.globe_zoom * (1.0 + scroll * 0.1)).clamp(0.4, 4.0);
     }
 
+    /// Current orbit/zoom state, for persistence.
+    pub fn globe_orbit(&self) -> (f32, f32, f32) {
+        (self.globe_yaw, self.globe_pitch, self.globe_zoom)
+    }
+
+    /// Restore a saved orbit/zoom state (clamped to valid ranges).
+    pub fn set_globe_orbit(&mut self, yaw: f32, pitch: f32, zoom: f32) {
+        self.globe_yaw = yaw;
+        self.globe_pitch = pitch.clamp(-1.3, 1.3);
+        self.globe_zoom = zoom.clamp(0.4, 4.0);
+    }
+
     /// Camera: raised behind the front edge, looking down the terrain. A subtle
     /// beat/bass-driven bob adds life.
     fn camera(&self, beat: f32, bass: f32) -> (Vec3, Vec3) {
