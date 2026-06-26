@@ -62,6 +62,11 @@ Two threads, joined by one lock-free ring buffer:
   back interpolated by depth) so it fills the viewport at every depth. Aspect is capped at
   `MAX_FILL_ASPECT` so ultrawide screens keep it centered instead of stretching. Shader tapers
   the left/right columns to zero (`edge`) for a borderless, infinite feel.
+- **Globe mode** (`G` key, `misc.y` flag): same grid + heightmap + index buffer, but the
+  vertex shader branches to wrap the grid onto a sphere (longitude = col/frequency, latitude =
+  row/time, height = radial bump) and `render` builds a spinning `proj·view·model` matrix.
+  Terrain-only effects (frustum width, edge taper, distance fade) are skipped (x-ray sphere).
+  No extra pipeline/buffers — just the mode flag and per-mode `view_proj`.
 
 ### Now-playing overlay (`nowplaying.rs` + glyphon in `render.rs`)
 

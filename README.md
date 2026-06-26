@@ -50,8 +50,13 @@ cargo run --release -- --accent cyan   # start with a specific accent color
 | `Tab` | Cycle through audio sources (mics + output monitors) |
 | `C` | Cycle accent color |
 | `1`–`6` | Pick accent color directly |
+| `G` | Toggle globe view (spectrum wrapped on a spinning sphere) |
 | `Space` | Song overlay mode: occasional → permanent → never |
 | `Esc` | Quit |
+
+Press **`G`** to wrap the same spectrum onto a slowly rotating sphere — a "globe of
+sound" (longitude = frequency, latitude = time, height bumps outward) — and `G` again to
+return to the terrain.
 
 ## Audio source selection
 

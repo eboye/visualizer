@@ -16,6 +16,10 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var<storage, read> heights: array<f32>;
 
+// Globe mode: base sphere radius and how far peaks bump outward.
+const GLOBE_R: f32 = 1.3;
+const GLOBE_HEIGHT: f32 = 1.1;
+
 struct VsOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) height: f32,
@@ -40,9 +44,25 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
     let fx = f32(col) / f32(cols - 1u) - 0.5; // -0.5 .. 0.5
     let fz = f32(d) / f32(rows - 1u);         //  0   .. 1
 
-    // Width grows from front to back to match the camera frustum, so the grid
-    // fills the viewport at every depth. Edges taper to zero for an infinite,
-    // borderless feel (no hard left/right boundary).
+    var out: VsOut;
+    if u.misc.y > 0.5 {
+        // --- Globe mode: wrap the grid onto a rotating sphere. Longitude =
+        // frequency (col), latitude = time-history (row), height bumps outward.
+        let theta = (f32(col) / f32(cols - 1u)) * 6.2831853; // 0 .. 2π
+        let phi = fz * 3.1415927;                            // 0 .. π (pole→pole)
+        let radius = GLOBE_R + h * GLOBE_HEIGHT + u.grid.w * 0.08; // beat pulse
+        let sp = sin(phi);
+        let pos = vec3<f32>(radius * sp * cos(theta), radius * cos(phi), radius * sp * sin(theta));
+        out.clip = u.view_proj * vec4<f32>(pos, 1.0);
+        out.height = h;
+        out.depth = 0.0; // x-ray globe: no distance fade
+        out.edge = 1.0;  // no side taper
+        return out;
+    }
+
+    // --- Terrain mode. Width grows from front to back to match the camera
+    // frustum, so the grid fills the viewport at every depth. Edges taper to
+    // zero for an infinite, borderless feel (no hard left/right boundary).
     let width = mix(u.shape.y, u.shape.z, fz);
     let ax = abs(fx) * 2.0;                    // 0 center .. 1 edge
     let edge = 1.0 - smoothstep(0.78, 1.0, ax);
@@ -51,7 +71,6 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
     let z = fz * u.shape.x;
     let y = h * u.shape.w * edge;
 
-    var out: VsOut;
     out.clip = u.view_proj * vec4<f32>(x, y, z, 1.0);
     out.height = h * edge;
     out.depth = fz;

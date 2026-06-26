@@ -103,6 +103,7 @@ struct App {
     track: Option<String>,
     track_shown_at: Instant,
     overlay_mode: OverlayMode,
+    globe: bool,
 }
 
 impl App {
@@ -124,6 +125,7 @@ impl App {
             track: None,
             track_shown_at: Instant::now(),
             overlay_mode: OverlayMode::Occasional,
+            globe: false,
         }
     }
 
@@ -209,6 +211,10 @@ impl ApplicationHandler for App {
                 Key::Character(ref c) if c.eq_ignore_ascii_case("c") => {
                     self.set_accent(self.accent + 1)
                 }
+                Key::Character(ref c) if c.eq_ignore_ascii_case("g") => {
+                    self.globe = !self.globe;
+                    println!("→ view: {}", if self.globe { "globe" } else { "terrain" });
+                }
                 Key::Character(ref c) => {
                     if let Some(d) = c.chars().next().and_then(|ch| ch.to_digit(10))
                         && d >= 1
@@ -252,11 +258,13 @@ impl ApplicationHandler for App {
                 };
 
                 let accent = ACCENTS[self.accent].1;
+                let globe = self.globe;
                 if let Some(r) = &mut self.renderer {
                     let t = self.start.elapsed().as_secs_f32();
                     let spectrum = self.analyzer.spectrum();
                     let track = self.track.as_deref();
-                    let presented = r.render(t, &self.features, accent, spectrum, track, text_alpha);
+                    let presented =
+                        r.render(t, &self.features, accent, spectrum, globe, track, text_alpha);
                     // If the surface couldn't present (occluded/minimized), there
                     // is no vsync block pacing us — back off to avoid a busy loop.
                     if !presented {
@@ -315,7 +323,7 @@ fn main() {
         ACCENTS[accent].0
     );
     println!(
-        "Keys: F/F11 fullscreen · Tab source · C / 1-6 accent · Space song overlay · Esc quit"
+        "Keys: F/F11 fullscreen · Tab source · C / 1-6 accent · G globe · Space song · Esc quit"
     );
 
     let engine = AudioEngine::start(capture_system_output);

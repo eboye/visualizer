@@ -36,6 +36,10 @@ const WIDTH_MARGIN: f32 = 1.02;
 /// faded/empty sides instead of stretching everything across the viewport.
 const MAX_FILL_ASPECT: f32 = 1.85;
 
+/// Globe mode ("G" key): camera distance and spin speed (radians/sec).
+const GLOBE_EYE_DIST: f32 = 4.2;
+const GLOBE_SPIN_SPEED: f32 = 0.3;
+
 /// Mirrors the `Uniforms` struct in `shaders/terrain.wgsl`.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -290,12 +294,16 @@ impl Renderer {
 
     /// Push the newest spectrum row, update uniforms, draw. Returns `true` if a
     /// frame was presented (see the busy-loop backoff in `main.rs`).
+    // A render entry point with several distinct per-frame inputs; grouping them
+    // into a struct would add indirection without real benefit.
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         time: f32,
         features: &AudioFeatures,
         accent: [f32; 3],
         spectrum: &[f32],
+        globe: bool,
         now_playing: Option<&str>,
         text_alpha: f32,
     ) -> bool {
@@ -308,16 +316,12 @@ impl Renderer {
         self.head = (self.head + 1) % ROWS;
 
         let aspect = self.size.width as f32 / self.size.height.max(1) as f32;
-        let (eye, target) = self.camera(features.beat, features.bass);
-        let view = Mat4::look_at_rh(eye, target, Vec3::Y);
         let proj = Mat4::perspective_rh(VFOV_DEG.to_radians(), aspect, 0.1, 100.0);
-        let view_proj = proj * view;
 
-        // Frustum-match the grid width at the front and back edges so the terrain
-        // fills the viewport width at every depth (a screen-aligned grid). The
-        // aspect is capped at MAX_FILL_ASPECT so ultrawide screens keep the
-        // terrain centered at a sensible width rather than stretching it across
-        // the whole viewport. width = 2 · view-depth · tan(hfov/2) · margin.
+        // Terrain width is frustum-matched per frame so the grid fills the
+        // viewport at every depth (capped at MAX_FILL_ASPECT for ultrawide).
+        // Unused in globe mode but cheap to compute.
+        let (eye, target) = self.camera(features.beat, features.bass);
         let dir = (target - eye).normalize();
         let fill_aspect = aspect.min(MAX_FILL_ASPECT);
         let tan_h = fill_aspect * (VFOV_DEG.to_radians() * 0.5).tan();
@@ -326,12 +330,26 @@ impl Renderer {
         let width_front = 2.0 * z_front * tan_h * WIDTH_MARGIN;
         let width_back = 2.0 * z_back * tan_h * WIDTH_MARGIN;
 
+        let view_proj = if globe {
+            // Look at a spinning, slightly tilted globe centered at the origin.
+            let view = Mat4::look_at_rh(
+                Vec3::new(0.0, 0.0, -GLOBE_EYE_DIST),
+                Vec3::ZERO,
+                Vec3::Y,
+            );
+            let model =
+                Mat4::from_rotation_x(0.35) * Mat4::from_rotation_y(time * GLOBE_SPIN_SPEED);
+            proj * view * model
+        } else {
+            proj * Mat4::look_at_rh(eye, target, Vec3::Y)
+        };
+
         let uniforms = Uniforms {
             view_proj: view_proj.to_cols_array_2d(),
             accent: [accent[0], accent[1], accent[2], features.level],
             grid: [COLS as f32, ROWS as f32, self.head as f32, features.beat],
             shape: [DEPTH, width_front, width_back, HEIGHT_SCALE],
-            misc: [time, 0.0, 0.0, 0.0],
+            misc: [time, if globe { 1.0 } else { 0.0 }, 0.0, 0.0],
         };
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
