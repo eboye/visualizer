@@ -84,12 +84,23 @@ Two threads, joined by one lock-free ring buffer:
   `Space` cycles `OverlayMode` (occasional → permanent → never). Text is monospace, centered
   (line `Align::Center` + buffer width = screen), near the top.
 
-### Rendering notes
+### Rendering notes (multi-pass HDR — `render.rs` + `terrain.wgsl` + `post.wgsl`)
 
-- **MSAA** is auto-enabled at the best level the GPU/format supports (4× → 2× → off,
-  via `TextureFormatFeatureFlags::MULTISAMPLE_X4/X2`). When on, the pass draws into a
-  multisampled target (`msaa_view`, recreated on resize) and resolves to the surface; the
-  pipeline **and** the glyphon `TextRenderer` must share the same `sample_count`.
+- **Pass chain:** (1) scene → HDR `Rgba16Float` target (MSAA-resolved): graded backdrop +
+  thick line quads; (2) bright-pass at half-res; (3,4) separable Gaussian blur H/V (bloom);
+  (5) composite → surface with scene + additive bloom, ACES tone-map + sat/contrast grade,
+  then glyphon text. Size-dependent textures + their post bind groups live in `Targets`,
+  rebuilt by `build_targets` on resize; blur step sizes by `write_blur_dirs`.
+- **MSAA** only on the scene pass, auto-picked (4×→2×→off via `MULTISAMPLE_X4/X2`). Post
+  passes and the text renderer are single-sample (they target single-sample textures/surface).
+- **Thick lines** are instanced quads: one instance per grid segment (a `Uint32x2` of the two
+  grid-vertex indices); the vertex shader computes both endpoints (`grid_point`, terrain or
+  globe), expands perpendicular in pixel space by `LINE_THICKNESS_PX`, and feathers via `cross`.
+- WGSL globals need unique group+binding per module, so `post.wgsl` uses distinct bindings
+  (1 = bright/blur input, 2 = blur dir, 3/4 = composite scene/bloom); per-pipeline BGLs expose
+  only what each entry point uses. Bloom/grade knobs are `const`s in `post.wgsl`.
+- Motion easing: `bob` (smoothed beat) drives the camera; `accent_cur` lerps toward the target
+  accent so color changes glide instead of snapping.
 
 ### Critical invariants — do not break
 

@@ -6,9 +6,9 @@ in Rust. It captures audio (system output or a microphone), runs an FFT, and ren
 magnitude is height, and each frame adds a new row at the front so the landscape flows
 into the distance.
 
-Lines are drawn in a single **accent color** on black — brighter on peaks and beats,
-dimmer with distance, and antialiased with **MSAA** (4×/2× where the GPU supports it). The
-accent is selectable at runtime. The current **song (artist —
+Lines are drawn in a single **accent color** as thick, soft-edged strokes over a graded
+backdrop, with **neon bloom**, ACES tone-mapping, and **MSAA** (4×/2× where the GPU supports
+it). The accent is selectable at runtime and eases smoothly when changed. The current **song (artist —
 title)** fades in periodically, read from the active media player over MPRIS/D-Bus.
 
 ```
@@ -92,10 +92,11 @@ first six map to keys `1`–`6`.
 - `WIDTH` / `DEPTH` / `HEIGHT_SCALE` — world dimensions and peak height.
 - Camera eye/target/fov in `view_proj()` — viewpoint and the beat/bass-driven bob.
 
-### 4. The look — `src/shaders/terrain.wgsl`
-WGSL vertex + fragment shader; iterate without recompiling the engine logic. The vertex stage
-places the grid and samples height; the fragment stage colors lines in the accent, brighter on
-peaks/beats and faded with distance.
+### 4. The look — `src/shaders/terrain.wgsl` + `src/shaders/post.wgsl`
+`terrain.wgsl` draws the graded backdrop and the thick line quads (line thickness is
+`LINE_THICKNESS_PX` in `render.rs`). `post.wgsl` holds the post-processing constants —
+`BLOOM_THRESHOLD`/`BLOOM_INTENSITY`, `EXPOSURE`, `SATURATION`, `CONTRAST`, `VIGNETTE` — tune
+these for the overall mood. Both iterate without touching the engine code.
 
 ## Project layout
 
@@ -105,9 +106,10 @@ peaks/beats and faded with distance.
 | `src/audio.rs` | PipeWire capture thread, node enumeration, runtime source switching, ring buffer |
 | `src/dsp.rs` | Hann window → FFT → log-spaced spectrum + beat detection (`AudioFeatures`) |
 | `src/nowplaying.rs` | MPRIS/D-Bus thread reading the active player's artist/title |
-| `src/render.rs` | wgpu 3D terrain renderer + glyphon text overlay (`Renderer`) |
+| `src/render.rs` | wgpu multi-pass HDR renderer (scene → bloom → composite) + text (`Renderer`) |
 | `src/config.rs` | persist accent / view / overlay mode / globe orbit between runs |
-| `src/shaders/terrain.wgsl` | 3D vertex (grid + heightmap) + fragment (accent lines) shader |
+| `src/shaders/terrain.wgsl` | scene shader: graded backdrop + thick line-quad geometry |
+| `src/shaders/post.wgsl` | post: bright-pass, Gaussian blur, composite (bloom + tone-map + grade) |
 
 ## Saved settings
 
