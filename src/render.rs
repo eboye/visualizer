@@ -36,9 +36,12 @@ const WIDTH_MARGIN: f32 = 1.02;
 /// faded/empty sides instead of stretching everything across the viewport.
 const MAX_FILL_ASPECT: f32 = 1.85;
 
-/// Globe mode ("G" key): camera distance and spin speed (radians/sec).
-const GLOBE_EYE_DIST: f32 = 4.2;
+/// Globe mode ("G" key): camera distance, spin speed (radians/sec), and axial
+/// tilt. The tilt leans the "newest data" pole (where fresh, spiky spectrum
+/// piles up) up and away from the camera so it isn't staring at the viewer.
+const GLOBE_EYE_DIST: f32 = 4.9;
 const GLOBE_SPIN_SPEED: f32 = 0.3;
+const GLOBE_TILT: f32 = 1.0;
 
 /// Mirrors the `Uniforms` struct in `shaders/terrain.wgsl`.
 #[repr(C)]
@@ -226,7 +229,7 @@ impl Renderer {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: Default::default(),
@@ -338,18 +341,23 @@ impl Renderer {
                 Vec3::Y,
             );
             let model =
-                Mat4::from_rotation_x(0.35) * Mat4::from_rotation_y(time * GLOBE_SPIN_SPEED);
+                Mat4::from_rotation_x(GLOBE_TILT) * Mat4::from_rotation_y(time * GLOBE_SPIN_SPEED);
             proj * view * model
         } else {
             proj * Mat4::look_at_rh(eye, target, Vec3::Y)
         };
+
+        // Globe far-side fade bounds (camera-space distance): the back hemisphere
+        // fades toward transparent so it doesn't clutter the near side.
+        let fade_near = GLOBE_EYE_DIST - 0.3;
+        let fade_far = GLOBE_EYE_DIST + 1.6;
 
         let uniforms = Uniforms {
             view_proj: view_proj.to_cols_array_2d(),
             accent: [accent[0], accent[1], accent[2], features.level],
             grid: [COLS as f32, ROWS as f32, self.head as f32, features.beat],
             shape: [DEPTH, width_front, width_back, HEIGHT_SCALE],
-            misc: [time, if globe { 1.0 } else { 0.0 }, 0.0, 0.0],
+            misc: [time, if globe { 1.0 } else { 0.0 }, fade_near, fade_far],
         };
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));

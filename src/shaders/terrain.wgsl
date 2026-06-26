@@ -55,8 +55,10 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
         let pos = vec3<f32>(radius * sp * cos(theta), radius * cos(phi), radius * sp * sin(theta));
         out.clip = u.view_proj * vec4<f32>(pos, 1.0);
         out.height = h;
-        out.depth = 0.0; // x-ray globe: no distance fade
-        out.edge = 1.0;  // no side taper
+        out.depth = 0.0; // brightness not distance-faded; opacity carries depth
+        // clip.w is the linear camera distance: fade the far hemisphere toward
+        // (almost) transparent so the back doesn't clutter the near side.
+        out.edge = max(1.0 - smoothstep(u.misc.z, u.misc.w, out.clip.w), 0.04);
         return out;
     }
 
@@ -95,8 +97,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     col += accent * (beat * 0.25 * fade);
     // Gentle global lift with overall energy so quiet passages aren't flat-dark.
     col += accent * (level * 0.12 * fade);
-    // Dissolve the left/right edges so the terrain has no hard side boundary.
-    col *= in.edge;
 
-    return vec4<f32>(col, 1.0);
+    // `edge` is opacity: terrain side-taper, or the globe's far-side fade.
+    return vec4<f32>(col, in.edge);
 }
