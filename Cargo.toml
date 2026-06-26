@@ -2,6 +2,9 @@
 name = "visualizer"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+description = "Fullscreen Linux/PipeWire audio visualizer in Rust — 3D wireframe terrain & globe with HDR bloom (wgpu)"
+repository = "https://github.com/eboye/visualizer"
 
 [dependencies]
 bytemuck = { version = "1.25.0", features = ["derive"] }

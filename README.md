@@ -136,3 +136,12 @@ font size is the `Metrics` in `Renderer::new` (`src/render.rs`).
 `wgpu` (Vulkan backend) · `winit` · `pipewire-rs` · `rustfft` · `ringbuf` · `glam` · `glyphon`
 (text) · `mpris` (D-Bus) · `bytemuck` · `pollster`. See [`CLAUDE.md`](./CLAUDE.md) for
 architecture details and version-specific notes.
+
+## Releases
+
+Tagged builds are produced by CI: pushing a `v*` tag builds an optimized Linux x86_64 binary
+and publishes it (with a SHA-256 checksum) to a GitHub Release. See [Releases](https://github.com/eboye/visualizer/releases).
+
+## License
+
+MIT — see [`LICENSE`](./LICENSE).
