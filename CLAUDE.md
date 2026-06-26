@@ -84,6 +84,13 @@ Two threads, joined by one lock-free ring buffer:
   `Space` cycles `OverlayMode` (occasional → permanent → never). Text is monospace, centered
   (line `Align::Center` + buffer width = screen), near the top.
 
+### Rendering notes
+
+- **MSAA** is auto-enabled at the best level the GPU/format supports (4× → 2× → off,
+  via `TextureFormatFeatureFlags::MULTISAMPLE_X4/X2`). When on, the pass draws into a
+  multisampled target (`msaa_view`, recreated on resize) and resolves to the surface; the
+  pipeline **and** the glyphon `TextRenderer` must share the same `sample_count`.
+
 ### Critical invariants — do not break
 
 - **The capture stream uses NO `RT_PROCESS` flag** (`StreamFlags::AUTOCONNECT | MAP_BUFFERS`

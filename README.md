@@ -7,7 +7,8 @@ magnitude is height, and each frame adds a new row at the front so the landscape
 into the distance.
 
 Lines are drawn in a single **accent color** on black — brighter on peaks and beats,
-dimmer with distance. The accent is selectable at runtime. The current **song (artist —
+dimmer with distance, and antialiased with **MSAA** (4×/2× where the GPU supports it). The
+accent is selectable at runtime. The current **song (artist —
 title)** fades in periodically, read from the active media player over MPRIS/D-Bus.
 
 ```

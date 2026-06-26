@@ -65,6 +65,10 @@ pub struct Renderer {
     index_buffer: wgpu::Buffer,
     index_count: u32,
     bind_group: wgpu::BindGroup,
+    // MSAA: multisampled render target resolved to the surface. `msaa_view` is
+    // None when the GPU doesn't support multisampling (sample_count == 1).
+    sample_count: u32,
+    msaa_view: Option<wgpu::TextureView>,
     pub size: winit::dpi::PhysicalSize<u32>,
     head: usize, // ring write position into the heightmap
     // Globe-mode mouse orbit/zoom state.
@@ -117,6 +121,18 @@ impl Renderer {
             .copied()
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
+
+        // Pick the best supported MSAA level for this format (4× → 2× → off).
+        let msaa_flags = adapter.get_texture_format_features(format).flags;
+        let sample_count = if msaa_flags
+            .contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_X4)
+        {
+            4
+        } else if msaa_flags.contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_X2) {
+            2
+        } else {
+            1
+        };
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -243,7 +259,11 @@ impl Renderer {
                 ..Default::default()
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
+            multisample: wgpu::MultisampleState {
+                count: sample_count,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
             multiview_mask: None,
             cache: None,
         });
@@ -254,9 +274,19 @@ impl Renderer {
         let glyph_cache = GlyphCache::new(&device);
         let viewport = Viewport::new(&device, &glyph_cache);
         let mut text_atlas = TextAtlas::new(&device, &queue, &glyph_cache, format);
-        let text_renderer =
-            TextRenderer::new(&mut text_atlas, &device, wgpu::MultisampleState::default(), None);
+        let text_renderer = TextRenderer::new(
+            &mut text_atlas,
+            &device,
+            wgpu::MultisampleState {
+                count: sample_count,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            None,
+        );
         let text_buffer = TextBuffer::new(&mut font_system, Metrics::new(18.0, 24.0));
+
+        let msaa_view = create_msaa_view(&device, &config, sample_count);
 
         Self {
             surface,
@@ -269,6 +299,8 @@ impl Renderer {
             index_buffer,
             index_count,
             bind_group,
+            sample_count,
+            msaa_view,
             size,
             head: 0,
             globe_yaw: 0.0,
@@ -292,6 +324,7 @@ impl Renderer {
         self.config.width = new_size.width;
         self.config.height = new_size.height;
         self.surface.configure(&self.device, &self.config);
+        self.msaa_view = create_msaa_view(&self.device, &self.config, self.sample_count);
     }
 
     /// Globe mode: orbit by a mouse drag delta (pixels).
@@ -477,11 +510,17 @@ impl Renderer {
                 label: Some("encoder"),
             });
         {
+            // With MSAA, draw into the multisampled target and resolve to the
+            // surface; without it, draw straight to the surface.
+            let (target, resolve) = match &self.msaa_view {
+                Some(msaa) => (msaa, Some(&view)),
+                None => (&view, None),
+            };
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("rpass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
+                    view: target,
+                    resolve_target: resolve,
                     depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -510,4 +549,31 @@ impl Renderer {
         self.text_atlas.trim();
         true
     }
+}
+
+/// Create a multisampled color target matching the surface, or `None` when MSAA
+/// is unavailable (sample_count == 1 → render straight to the surface).
+fn create_msaa_view(
+    device: &wgpu::Device,
+    config: &wgpu::SurfaceConfiguration,
+    sample_count: u32,
+) -> Option<wgpu::TextureView> {
+    if sample_count <= 1 {
+        return None;
+    }
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("msaa"),
+        size: wgpu::Extent3d {
+            width: config.width,
+            height: config.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count,
+        dimension: wgpu::TextureDimension::D2,
+        format: config.format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    Some(tex.create_view(&wgpu::TextureViewDescriptor::default()))
 }
