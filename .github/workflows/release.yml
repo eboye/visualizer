@@ -23,7 +23,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config clang libclang-dev \
-            libpipewire-0.3-dev libdbus-1-dev libfontconfig-1-dev
+            libpipewire-0.3-dev libdbus-1-dev libfontconfig1-dev
 
       - uses: dtolnay/rust-toolchain@stable
 
