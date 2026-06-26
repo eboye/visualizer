@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 bytemuck = { version = "1.25.0", features = ["derive"] }
+glam = "0.33.1"
 pipewire = "0.10.0"
 pollster = "0.4.0"
 ringbuf = "0.5.0"

@@ -1,20 +1,45 @@
-//! wgpu rendering: sets up the device/surface, a fullscreen-triangle pipeline,
-//! and a uniform buffer carrying the audio features into the fragment shader.
+//! wgpu rendering: a 3D scrolling wireframe terrain.
+//!
+//! Frequency spans the width (bass → treble), magnitude is height, and time
+//! scrolls into the distance. The grid geometry is implicit (computed from
+//! `vertex_index` in the shader); per-vertex height comes from a scrolling
+//! heightmap storage buffer fed one row per frame.
 
 use std::sync::Arc;
 
+use glam::{Mat4, Vec3};
+use wgpu::util::DeviceExt;
 use winit::window::Window;
 
-use crate::dsp::AudioFeatures;
+use crate::dsp::{AudioFeatures, SPECTRUM_COLS};
 
-/// Mirrors the `Uniforms` struct in `shaders/fullscreen.wgsl`.
-/// std140-friendly: two 16-byte aligned vec4s.
+/// Terrain grid: columns across the width, rows of depth/history.
+const COLS: usize = SPECTRUM_COLS;
+const ROWS: usize = 96;
+
+/// World-space depth of the terrain and how tall peaks get. The width is
+/// computed per frame from the camera frustum so the grid always fills the
+/// viewport (see `render`).
+const DEPTH: f32 = 24.0;
+const HEIGHT_SCALE: f32 = 5.0;
+const VFOV_DEG: f32 = 55.0;
+/// Slight horizontal overshoot so the terrain reaches just past the viewport
+/// edges (the shader fades the last sliver to zero — see the edge taper).
+const WIDTH_MARGIN: f32 = 1.02;
+/// Cap the aspect used for terrain width. Screens up to this aspect fill edge to
+/// edge; wider (ultrawide) screens keep the terrain centered at this width with
+/// faded/empty sides instead of stretching everything across the viewport.
+const MAX_FILL_ASPECT: f32 = 1.85;
+
+/// Mirrors the `Uniforms` struct in `shaders/terrain.wgsl`.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Uniforms {
-    time_res_beat: [f32; 4], // time, res.x, res.y, beat
-    bands: [f32; 4],         // bass, mid, treble, level
-    accent: [f32; 4],        // accent rgb, w unused
+    view_proj: [[f32; 4]; 4],
+    accent: [f32; 4], // rgb, level
+    grid: [f32; 4],   // cols, rows, head, beat
+    shape: [f32; 4],  // depth, width_front, width_back, height_scale
+    misc: [f32; 4],   // time, _, _, _
 }
 
 pub struct Renderer {
@@ -24,8 +49,12 @@ pub struct Renderer {
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
+    heights_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    index_count: u32,
     bind_group: wgpu::BindGroup,
     pub size: winit::dpi::PhysicalSize<u32>,
+    head: usize, // ring write position into the heightmap
 }
 
 impl Renderer {
@@ -78,8 +107,37 @@ impl Renderer {
         surface.configure(&device, &config);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("fullscreen"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/fullscreen.wgsl").into()),
+            label: Some("terrain"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/terrain.wgsl").into()),
+        });
+
+        // --- Line index buffer (built once): cross-hatch of across + depth lines.
+        let mut indices: Vec<u32> = Vec::with_capacity(COLS * ROWS * 4);
+        for d in 0..ROWS {
+            for col in 0..COLS {
+                let i = (d * COLS + col) as u32;
+                if col + 1 < COLS {
+                    indices.push(i);
+                    indices.push(i + 1);
+                }
+                if d + 1 < ROWS {
+                    indices.push(i);
+                    indices.push(i + COLS as u32);
+                }
+            }
+        }
+        let index_count = indices.len() as u32;
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("indices"),
+            contents: bytemuck::cast_slice(&indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        // --- Heightmap storage buffer, zero-initialized.
+        let heights_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("heights"),
+            contents: bytemuck::cast_slice(&vec![0.0f32; COLS * ROWS]),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -91,26 +149,44 @@ impl Renderer {
 
         let bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("uniform-bgl"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                label: Some("bgl"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
             });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("uniform-bg"),
+            label: Some("bg"),
             layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: heights_buffer.as_entire_binding(),
+                },
+            ],
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -138,7 +214,10 @@ impl Renderer {
                 })],
                 compilation_options: Default::default(),
             }),
-            primitive: wgpu::PrimitiveState::default(),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::LineList,
+                ..Default::default()
+            },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
@@ -152,8 +231,12 @@ impl Renderer {
             config,
             pipeline,
             uniform_buffer,
+            heights_buffer,
+            index_buffer,
+            index_count,
             bind_group,
             size,
+            head: 0,
         }
     }
 
@@ -167,19 +250,56 @@ impl Renderer {
         self.surface.configure(&self.device, &self.config);
     }
 
-    /// Update uniforms and draw one frame. Returns `true` if a frame was
-    /// presented; `false` if the surface couldn't be acquired (e.g. occluded),
-    /// letting the caller back off instead of busy-spinning.
-    pub fn render(&mut self, time: f32, features: &AudioFeatures, accent: [f32; 3]) -> bool {
+    /// Camera: raised behind the front edge, looking down the terrain. A subtle
+    /// beat/bass-driven bob adds life.
+    fn camera(&self, beat: f32, bass: f32) -> (Vec3, Vec3) {
+        let eye = Vec3::new(0.0, 6.0 + beat * 0.6 + bass * 0.5, -7.0);
+        let target = Vec3::new(0.0, 0.8, DEPTH * 0.45);
+        (eye, target)
+    }
+
+    /// Push the newest spectrum row, update uniforms, draw. Returns `true` if a
+    /// frame was presented (see the busy-loop backoff in `main.rs`).
+    pub fn render(
+        &mut self,
+        time: f32,
+        features: &AudioFeatures,
+        accent: [f32; 3],
+        spectrum: &[f32],
+    ) -> bool {
+        // Write the newest row at the current ring position, then advance so the
+        // shader's `head - 1` points at it (the front edge).
+        let n = spectrum.len().min(COLS);
+        let offset = (self.head * COLS * std::mem::size_of::<f32>()) as u64;
+        self.queue
+            .write_buffer(&self.heights_buffer, offset, bytemuck::cast_slice(&spectrum[..n]));
+        self.head = (self.head + 1) % ROWS;
+
+        let aspect = self.size.width as f32 / self.size.height.max(1) as f32;
+        let (eye, target) = self.camera(features.beat, features.bass);
+        let view = Mat4::look_at_rh(eye, target, Vec3::Y);
+        let proj = Mat4::perspective_rh(VFOV_DEG.to_radians(), aspect, 0.1, 100.0);
+        let view_proj = proj * view;
+
+        // Frustum-match the grid width at the front and back edges so the terrain
+        // fills the viewport width at every depth (a screen-aligned grid). The
+        // aspect is capped at MAX_FILL_ASPECT so ultrawide screens keep the
+        // terrain centered at a sensible width rather than stretching it across
+        // the whole viewport. width = 2 · view-depth · tan(hfov/2) · margin.
+        let dir = (target - eye).normalize();
+        let fill_aspect = aspect.min(MAX_FILL_ASPECT);
+        let tan_h = fill_aspect * (VFOV_DEG.to_radians() * 0.5).tan();
+        let z_front = (Vec3::ZERO - eye).dot(dir);
+        let z_back = (Vec3::new(0.0, 0.0, DEPTH) - eye).dot(dir);
+        let width_front = 2.0 * z_front * tan_h * WIDTH_MARGIN;
+        let width_back = 2.0 * z_back * tan_h * WIDTH_MARGIN;
+
         let uniforms = Uniforms {
-            time_res_beat: [
-                time,
-                self.size.width as f32,
-                self.size.height as f32,
-                features.beat,
-            ],
-            bands: [features.bass, features.mid, features.treble, features.level],
-            accent: [accent[0], accent[1], accent[2], 0.0],
+            view_proj: view_proj.to_cols_array_2d(),
+            accent: [accent[0], accent[1], accent[2], features.level],
+            grid: [COLS as f32, ROWS as f32, self.head as f32, features.beat],
+            shape: [DEPTH, width_front, width_back, HEIGHT_SCALE],
+            misc: [time, 0.0, 0.0, 0.0],
         };
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
@@ -221,7 +341,8 @@ impl Renderer {
             });
             rpass.set_pipeline(&self.pipeline);
             rpass.set_bind_group(0, &self.bind_group, &[]);
-            rpass.draw(0..3, 0..1);
+            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            rpass.draw_indexed(0..self.index_count, 0, 0..1);
         }
         self.queue.submit(Some(encoder.finish()));
         frame.present();

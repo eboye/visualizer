@@ -4,8 +4,10 @@ Guidance for AI agents working in this repo. User-facing usage lives in [`README
 
 ## What this is
 
-A fullscreen Linux/PipeWire audio visualizer in Rust (~1100 LOC). Captures audio → FFT →
-bass/mid/treble + beat → reactive wgpu shader. Grayscale scene with one selectable accent color.
+A fullscreen Linux/PipeWire audio visualizer in Rust. Captures audio → FFT → log-spaced
+spectrum + beat → **3D scrolling wireframe terrain** (wgpu). Frequency spans the width
+(bass→treble), magnitude is height, time scrolls into the distance. Lines drawn in one
+selectable accent color on black.
 
 ## Commands
 
@@ -36,8 +38,29 @@ Two threads, joined by one lock-free ring buffer:
    Runtime re-targeting comes in over a `pw::channel` (`Command::Connect`) which rebuilds the
    stream. Negotiated sample rate is published via `Arc<AtomicU32>`.
 2. **Render thread** (`main.rs`): winit event loop. Each `RedrawRequested`, drains the ring
-   consumer → `Analyzer::feed` → `Analyzer::analyze()` (`dsp.rs`) → `Renderer::render` writes
-   `AudioFeatures` + accent into a uniform buffer and draws a fullscreen triangle.
+   consumer → `Analyzer::feed` → `Analyzer::analyze()` (`dsp.rs`) → `Renderer::render`. The
+   renderer writes the newest `Analyzer::spectrum()` row into a scrolling heightmap storage
+   buffer, updates the camera/uniforms, and draws the implicit grid as a `LineList` wireframe.
+
+### Terrain rendering (`render.rs` + `terrain.wgsl`)
+
+- **No vertex buffer.** The grid is `COLS×ROWS` implicit vertices; the vertex shader derives
+  `(x, z)` from `@builtin(vertex_index)` and reads `y` from a read-only **storage buffer**
+  `heights[]` (binding 1, vertex stage). A `LineList` **index buffer** (across + depth segments)
+  is built once on the CPU for the cross-hatch; draw via `draw_indexed`.
+- **Scrolling = a ring, not a memmove.** Each frame writes only the newest spectrum row at
+  `head*COLS*4` in `heights`, then `head = (head+1) % ROWS`. The shader maps logical depth `d`
+  (0 = front) to physical row `(head + ROWS - 1 - d) % ROWS`. `cols/rows/head` are passed in the
+  uniform, so WGSL has **no hardcoded grid size** — only the storage-buffer length depends on
+  `COLS*ROWS` at creation.
+- **`COLS` must equal `dsp::SPECTRUM_COLS`** (the spectrum row fills one terrain row).
+- Camera is `glam`: `perspective_rh (wgpu 0..1 depth, NOT _gl) * look_at_rh`, recomputed per
+  frame for free resize/aspect + a beat/bass bob. No depth buffer (x-ray wireframe; distance
+  fade in the fragment shader gives the depth cue).
+- Terrain **width is frustum-matched per frame** (`2·view-depth·tan(hfov/2)·margin`, front &
+  back interpolated by depth) so it fills the viewport at every depth. Aspect is capped at
+  `MAX_FILL_ASPECT` so ultrawide screens keep it centered instead of stretching. Shader tapers
+  the left/right columns to zero (`edge`) for a borderless, infinite feel.
 
 ### Critical invariants — do not break
 
@@ -80,7 +103,9 @@ Two threads, joined by one lock-free ring buffer:
 ## Conventions
 
 - Keep `cargo clippy` clean.
-- The shader (`fullscreen.wgsl`) `Uniforms` struct layout must stay in sync with the `Uniforms`
-  `#[repr(C)]` struct in `render.rs` (three `vec4`s: time/res/beat, bands, accent).
-- Tunable constants (FFT size, band ranges, gains, decay, beat threshold, accent palette) are
-  intentionally surfaced at the top of `dsp.rs` / `main.rs` for easy iteration — see README §Customization.
+- The shader (`terrain.wgsl`) `Uniforms` struct layout must stay in sync with the `Uniforms`
+  `#[repr(C)]` struct in `render.rs`: `mat4x4 view_proj`, then three `vec4`s — `accent` (rgb +
+  level in `.w`), `grid` (cols, rows, head, beat), `world` (width, depth, height_scale, time).
+- Tunable constants surfaced for easy iteration (see README §Customization): FFT size +
+  spectrum range/tilt + beat threshold in `dsp.rs`; grid `COLS`/`ROWS`, `WIDTH`/`DEPTH`/
+  `HEIGHT_SCALE` + camera in `render.rs`; accent palette in `main.rs`.

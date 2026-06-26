@@ -576,6 +576,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "glam"
+version = "0.33.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "898f5a568a84989b6c0f8caa50a93074b97dbdc58fc6d9543157bb4562758933"
+
+[[package]]
 name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2105,6 +2111,7 @@ name = "visualizer"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "glam",
  "pipewire",
  "pollster",
  "ringbuf",

@@ -9,12 +9,21 @@ use rustfft::{num_complex::Complex, Fft, FftPlanner};
 /// 2048 @ 48 kHz ≈ 43 ms window — good latency/resolution tradeoff.
 pub const FFT_SIZE: usize = 2048;
 
+/// Number of columns in the log-spaced spectrum (terrain width).
+pub const SPECTRUM_COLS: usize = 128;
+
+/// Frequency span mapped across the spectrum columns.
+const SPECTRUM_LO_HZ: f32 = 30.0;
+const SPECTRUM_HI_HZ: f32 = 16_000.0;
+
 /// Features handed to the renderer each frame. All roughly normalized to 0..1.
+/// The terrain shape comes from [`Analyzer::spectrum`]; these drive global
+/// motion/brightness.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AudioFeatures {
+    /// Smoothed low-end energy — drives the camera bob.
     pub bass: f32,
-    pub mid: f32,
-    pub treble: f32,
+    /// Overall spectrum energy — drives global brightness.
     pub level: f32,
     /// Beat envelope: jumps to 1.0 on a detected kick, then decays.
     pub beat: f32,
@@ -54,9 +63,10 @@ pub struct Analyzer {
     samples: Vec<f32>,       // sliding window of the most recent FFT_SIZE samples
     scratch: Vec<Complex<f32>>,
     fft_scratch: Vec<Complex<f32>>, // persistent FFT scratch (avoids per-frame alloc)
-    bass: Band,
-    mid: Band,
-    treble: Band,
+    // Log-spaced spectrum for the terrain: per-column FFT-bin ranges + output.
+    col_bins: Vec<(usize, usize)>,
+    spectrum: Vec<f32>,
+    bass: Band, // low-end energy: beat detection + camera bob
     // Beat detection state.
     bass_history: Vec<f32>,
     history_pos: usize,
@@ -81,15 +91,32 @@ impl Analyzer {
         // ~1 second of bass-energy history at typical frame rates.
         let history_len = 60;
 
+        // Log-spaced bin ranges: each column covers an octave-ish slice so bass
+        // doesn't get crushed into one column and treble doesn't dominate.
+        let bin_hz = sample_rate / FFT_SIZE as f32;
+        let max_bin = FFT_SIZE / 2;
+        let log_lo = SPECTRUM_LO_HZ.ln();
+        let log_hi = SPECTRUM_HI_HZ.ln();
+        let col_bins: Vec<(usize, usize)> = (0..SPECTRUM_COLS)
+            .map(|c| {
+                let f0 = (log_lo + (log_hi - log_lo) * c as f32 / SPECTRUM_COLS as f32).exp();
+                let f1 =
+                    (log_lo + (log_hi - log_lo) * (c + 1) as f32 / SPECTRUM_COLS as f32).exp();
+                let lo = ((f0 / bin_hz).floor() as usize).clamp(1, max_bin - 1);
+                let hi = ((f1 / bin_hz).ceil() as usize).clamp(lo + 1, max_bin);
+                (lo, hi)
+            })
+            .collect();
+
         Self {
             fft,
             window,
             samples: vec![0.0; FFT_SIZE],
             scratch: vec![Complex::new(0.0, 0.0); FFT_SIZE],
             fft_scratch,
+            col_bins,
+            spectrum: vec![0.0; SPECTRUM_COLS],
             bass: Band::new(20.0, 250.0, sample_rate),
-            mid: Band::new(250.0, 4000.0, sample_rate),
-            treble: Band::new(4000.0, 16000.0, sample_rate),
             bass_history: vec![0.0; history_len],
             history_pos: 0,
             beat_env: 0.0,
@@ -122,16 +149,12 @@ impl Analyzer {
         self.fft
             .process_with_scratch(&mut self.scratch, &mut self.fft_scratch);
 
-        // Raw band energies, gain-compensated and soft-clamped to 0..1.
+        // Low-end energy, gain-compensated and soft-clamped to 0..1.
         let raw_bass = compress(self.bass.energy(&self.scratch) * 0.05);
-        let raw_mid = compress(self.mid.energy(&self.scratch) * 0.12);
-        let raw_treble = compress(self.treble.energy(&self.scratch) * 0.25);
 
         // Peak-hold with decay: snap up instantly, ease down for smooth visuals.
         const DECAY: f32 = 0.90;
         self.bass.smoothed = raw_bass.max(self.bass.smoothed * DECAY);
-        self.mid.smoothed = raw_mid.max(self.mid.smoothed * DECAY);
-        self.treble.smoothed = raw_treble.max(self.treble.smoothed * DECAY);
 
         // --- Beat detection on instantaneous bass energy.
         let instant = raw_bass;
@@ -146,13 +169,33 @@ impl Analyzer {
         self.bass_history[self.history_pos] = instant;
         self.history_pos = (self.history_pos + 1) % self.bass_history.len();
 
+        // --- Log-spaced spectrum (one terrain row). Peak magnitude per column,
+        // gain-compensated and compressed, with a mild per-column decay so the
+        // scrolling ridges don't flicker frame to frame.
+        for (c, &(lo, hi)) in self.col_bins.iter().enumerate() {
+            let mut peak = 0.0f32;
+            for bin in &self.scratch[lo..hi] {
+                peak = peak.max(bin.norm());
+            }
+            // Treble bins carry less energy — tilt gain up with frequency.
+            let tilt = 0.04 + 0.20 * (c as f32 / SPECTRUM_COLS as f32);
+            let v = compress(peak * tilt);
+            self.spectrum[c] = v.max(self.spectrum[c] * 0.80);
+        }
+
+        let level = self.spectrum.iter().sum::<f32>() / SPECTRUM_COLS as f32;
+
         AudioFeatures {
             bass: self.bass.smoothed,
-            mid: self.mid.smoothed,
-            treble: self.treble.smoothed,
-            level: (self.bass.smoothed + self.mid.smoothed + self.treble.smoothed) / 3.0,
+            level,
             beat: self.beat_env,
         }
+    }
+
+    /// The most recent log-spaced spectrum row (length [`SPECTRUM_COLS`]),
+    /// bass → treble, each value ~0..1. One terrain row per `analyze()` call.
+    pub fn spectrum(&self) -> &[f32] {
+        &self.spectrum
     }
 }
 

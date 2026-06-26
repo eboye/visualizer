@@ -167,7 +167,8 @@ impl ApplicationHandler for App {
 
                 if let Some(r) = &mut self.renderer {
                     let t = self.start.elapsed().as_secs_f32();
-                    let presented = r.render(t, &self.features, ACCENTS[self.accent].1);
+                    let spectrum = self.analyzer.spectrum();
+                    let presented = r.render(t, &self.features, ACCENTS[self.accent].1, spectrum);
                     // If the surface couldn't present (occluded/minimized), there
                     // is no vsync block pacing us — back off to avoid a busy loop.
                     if !presented {
