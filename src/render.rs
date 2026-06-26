@@ -8,6 +8,11 @@
 use std::sync::Arc;
 
 use glam::{Mat4, Vec3};
+use glyphon::{
+    Attrs, Buffer as TextBuffer, Cache as GlyphCache, Color as TextColor, Family, FontSystem,
+    Metrics, Resolution, Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer,
+    Viewport,
+};
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
@@ -55,6 +60,14 @@ pub struct Renderer {
     bind_group: wgpu::BindGroup,
     pub size: winit::dpi::PhysicalSize<u32>,
     head: usize, // ring write position into the heightmap
+    // Now-playing text overlay (glyphon).
+    font_system: FontSystem,
+    swash_cache: SwashCache,
+    viewport: Viewport,
+    text_atlas: TextAtlas,
+    text_renderer: TextRenderer,
+    text_buffer: TextBuffer,
+    text_cache: Option<String>, // last shaped string, to avoid re-shaping each frame
 }
 
 impl Renderer {
@@ -224,6 +237,16 @@ impl Renderer {
             cache: None,
         });
 
+        // --- Text overlay (glyphon). The glyph cache is only needed during setup.
+        let mut font_system = FontSystem::new();
+        let swash_cache = SwashCache::new();
+        let glyph_cache = GlyphCache::new(&device);
+        let viewport = Viewport::new(&device, &glyph_cache);
+        let mut text_atlas = TextAtlas::new(&device, &queue, &glyph_cache, format);
+        let text_renderer =
+            TextRenderer::new(&mut text_atlas, &device, wgpu::MultisampleState::default(), None);
+        let text_buffer = TextBuffer::new(&mut font_system, Metrics::new(18.0, 24.0));
+
         Self {
             surface,
             device,
@@ -237,6 +260,13 @@ impl Renderer {
             bind_group,
             size,
             head: 0,
+            font_system,
+            swash_cache,
+            viewport,
+            text_atlas,
+            text_renderer,
+            text_buffer,
+            text_cache: None,
         }
     }
 
@@ -266,6 +296,8 @@ impl Renderer {
         features: &AudioFeatures,
         accent: [f32; 3],
         spectrum: &[f32],
+        now_playing: Option<&str>,
+        text_alpha: f32,
     ) -> bool {
         // Write the newest row at the current ring position, then advance so the
         // shader's `head - 1` points at it (the front edge).
@@ -303,6 +335,74 @@ impl Renderer {
         };
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+
+        // Prepare the now-playing overlay (re-shape only when the text changes).
+        let show_text = text_alpha > 0.01 && now_playing.is_some();
+        if show_text {
+            let text = now_playing.unwrap();
+            if self.text_cache.as_deref() != Some(text) {
+                self.text_buffer.set_size(
+                    &mut self.font_system,
+                    Some(self.config.width as f32),
+                    Some(self.config.height as f32),
+                );
+                self.text_buffer.set_text(
+                    &mut self.font_system,
+                    text,
+                    &Attrs::new().family(Family::Monospace),
+                    Shaping::Advanced,
+                    None,
+                );
+                // Center each line across the full buffer width.
+                for line in self.text_buffer.lines.iter_mut() {
+                    line.set_align(Some(glyphon::cosmic_text::Align::Center));
+                }
+                self.text_buffer
+                    .shape_until_scroll(&mut self.font_system, false);
+                self.text_cache = Some(text.to_string());
+            }
+
+            self.viewport.update(
+                &self.queue,
+                Resolution {
+                    width: self.config.width,
+                    height: self.config.height,
+                },
+            );
+
+            let a = (text_alpha.clamp(0.0, 1.0) * 255.0) as u8;
+            let color = TextColor::rgba(
+                (accent[0] * 255.0) as u8,
+                (accent[1] * 255.0) as u8,
+                (accent[2] * 255.0) as u8,
+                a,
+            );
+            // Centered (buffer width = screen, lines center-aligned), near the top.
+            let left = 0.0;
+            let top = 40.0;
+            let _ = self.text_renderer.prepare(
+                &self.device,
+                &self.queue,
+                &mut self.font_system,
+                &mut self.text_atlas,
+                &self.viewport,
+                [TextArea {
+                    buffer: &self.text_buffer,
+                    left,
+                    top,
+                    scale: 1.0,
+                    bounds: TextBounds {
+                        left: 0,
+                        top: 0,
+                        right: self.config.width as i32,
+                        bottom: self.config.height as i32,
+                    },
+                    default_color: color,
+                    custom_glyphs: &[],
+                }],
+                &mut self.swash_cache,
+            );
+        }
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(f)
@@ -343,9 +443,17 @@ impl Renderer {
             rpass.set_bind_group(0, &self.bind_group, &[]);
             rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             rpass.draw_indexed(0..self.index_count, 0, 0..1);
+
+            // Overlay the now-playing text on top of the terrain.
+            if show_text {
+                let _ = self
+                    .text_renderer
+                    .render(&self.text_atlas, &self.viewport, &mut rpass);
+            }
         }
         self.queue.submit(Some(encoder.finish()));
         frame.present();
+        self.text_atlas.trim();
         true
     }
 }

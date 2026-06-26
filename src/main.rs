@@ -10,6 +10,7 @@
 
 mod audio;
 mod dsp;
+mod nowplaying;
 mod render;
 
 use std::sync::Arc;
@@ -23,7 +24,56 @@ use winit::window::{Fullscreen, Window, WindowId};
 
 use audio::AudioEngine;
 use dsp::{Analyzer, AudioFeatures};
+use nowplaying::NowPlaying;
 use render::Renderer;
+
+// Now-playing overlay timing (seconds).
+const NP_FADE_IN: f32 = 0.5;
+const NP_HOLD: f32 = 5.0;
+const NP_FADE_OUT: f32 = 1.2;
+/// How often the overlay re-appears on its own when the track hasn't changed.
+const NP_CYCLE: f32 = 30.0;
+
+/// How the now-playing overlay behaves. Cycled with Space.
+#[derive(Clone, Copy, PartialEq)]
+enum OverlayMode {
+    /// Fades in on track change and every `NP_CYCLE` seconds (default).
+    Occasional,
+    /// Always visible.
+    Permanent,
+    /// Never shown.
+    Never,
+}
+
+impl OverlayMode {
+    fn next(self) -> Self {
+        match self {
+            OverlayMode::Occasional => OverlayMode::Permanent,
+            OverlayMode::Permanent => OverlayMode::Never,
+            OverlayMode::Never => OverlayMode::Occasional,
+        }
+    }
+    fn label(self) -> &'static str {
+        match self {
+            OverlayMode::Occasional => "occasional",
+            OverlayMode::Permanent => "permanent",
+            OverlayMode::Never => "never",
+        }
+    }
+}
+
+/// Fade envelope for the overlay: in → hold → out → hidden.
+fn np_alpha(t: f32) -> f32 {
+    if t < NP_FADE_IN {
+        t / NP_FADE_IN
+    } else if t < NP_FADE_IN + NP_HOLD {
+        1.0
+    } else if t < NP_FADE_IN + NP_HOLD + NP_FADE_OUT {
+        1.0 - (t - NP_FADE_IN - NP_HOLD) / NP_FADE_OUT
+    } else {
+        0.0
+    }
+}
 
 /// Accent color palette. The scene is grayscale; one of these tints the bass /
 /// beat. Default (index 0) is a neon red with a slight rose lean.
@@ -48,6 +98,11 @@ struct App {
     fullscreen: bool,
     sel: usize,
     accent: usize,
+    // Now-playing overlay.
+    nowplaying: NowPlaying,
+    track: Option<String>,
+    track_shown_at: Instant,
+    overlay_mode: OverlayMode,
 }
 
 impl App {
@@ -65,7 +120,17 @@ impl App {
             fullscreen: false,
             sel: 0,
             accent,
+            nowplaying: NowPlaying::start(),
+            track: None,
+            track_shown_at: Instant::now(),
+            overlay_mode: OverlayMode::Occasional,
         }
+    }
+
+    fn cycle_overlay_mode(&mut self) {
+        self.overlay_mode = self.overlay_mode.next();
+        self.track_shown_at = Instant::now(); // re-trigger the fade in Occasional mode
+        println!("→ now-playing overlay: {}", self.overlay_mode.label());
     }
 
     fn set_accent(&mut self, idx: usize) {
@@ -138,6 +203,7 @@ impl ApplicationHandler for App {
             } => match logical_key {
                 Key::Named(NamedKey::Escape) => event_loop.exit(),
                 Key::Named(NamedKey::Tab) => self.cycle_source(),
+                Key::Named(NamedKey::Space) => self.cycle_overlay_mode(),
                 Key::Named(NamedKey::F11) => self.toggle_fullscreen(),
                 Key::Character(ref c) if c.eq_ignore_ascii_case("f") => self.toggle_fullscreen(),
                 Key::Character(ref c) if c.eq_ignore_ascii_case("c") => {
@@ -165,10 +231,32 @@ impl ApplicationHandler for App {
                 self.analyzer.feed(&self.samples);
                 self.features = self.analyzer.analyze();
 
+                // Now-playing overlay: show on track change, then periodically.
+                let np = self.nowplaying.current();
+                if np != self.track {
+                    self.track = np;
+                    if self.track.is_some() {
+                        self.track_shown_at = Instant::now();
+                    }
+                } else if self.track.is_some()
+                    && self.overlay_mode == OverlayMode::Occasional
+                    && self.track_shown_at.elapsed().as_secs_f32() >= NP_CYCLE
+                {
+                    self.track_shown_at = Instant::now();
+                }
+                let text_alpha = match self.overlay_mode {
+                    _ if self.track.is_none() => 0.0,
+                    OverlayMode::Never => 0.0,
+                    OverlayMode::Permanent => 1.0,
+                    OverlayMode::Occasional => np_alpha(self.track_shown_at.elapsed().as_secs_f32()),
+                };
+
+                let accent = ACCENTS[self.accent].1;
                 if let Some(r) = &mut self.renderer {
                     let t = self.start.elapsed().as_secs_f32();
                     let spectrum = self.analyzer.spectrum();
-                    let presented = r.render(t, &self.features, ACCENTS[self.accent].1, spectrum);
+                    let track = self.track.as_deref();
+                    let presented = r.render(t, &self.features, accent, spectrum, track, text_alpha);
                     // If the surface couldn't present (occluded/minimized), there
                     // is no vsync block pacing us — back off to avoid a busy loop.
                     if !presented {
@@ -226,7 +314,9 @@ fn main() {
         },
         ACCENTS[accent].0
     );
-    println!("Keys: F/F11 fullscreen · Tab source · C / 1-6 accent color · Esc quit");
+    println!(
+        "Keys: F/F11 fullscreen · Tab source · C / 1-6 accent · Space song overlay · Esc quit"
+    );
 
     let engine = AudioEngine::start(capture_system_output);
 

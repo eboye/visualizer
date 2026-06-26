@@ -7,7 +7,8 @@ magnitude is height, and each frame adds a new row at the front so the landscape
 into the distance.
 
 Lines are drawn in a single **accent color** on black — brighter on peaks and beats,
-dimmer with distance. The accent is selectable at runtime.
+dimmer with distance. The accent is selectable at runtime. The current **song (artist —
+title)** fades in periodically, read from the active media player over MPRIS/D-Bus.
 
 ```
 PipeWire capture thread ──(lock-free ring buffer)──► render thread
@@ -26,7 +27,9 @@ PipeWire capture thread ──(lock-free ring buffer)──► render thread
   `vulkaninfo | head`.
 - **Rust** (edition 2024; built/tested on rustc 1.96)
 - Build-time: `clang` and the PipeWire dev headers (`libpipewire-0.3`) — `pipewire-rs` uses
-  bindgen. Most desktop distros already have these.
+  bindgen. Also `libdbus-1` (for the MPRIS now-playing reader). Most desktop distros have these.
+- Optional: a running **D-Bus session** + an MPRIS-capable player for the now-playing overlay.
+  Absent that, the overlay simply stays hidden.
 
 ## Build & run
 
@@ -47,6 +50,7 @@ cargo run --release -- --accent cyan   # start with a specific accent color
 | `Tab` | Cycle through audio sources (mics + output monitors) |
 | `C` | Cycle accent color |
 | `1`–`6` | Pick accent color directly |
+| `Space` | Song overlay mode: occasional → permanent → never |
 | `Esc` | Quit |
 
 ## Audio source selection
@@ -90,13 +94,29 @@ peaks/beats and faded with distance.
 
 | File | Responsibility |
 |------|----------------|
-| `src/main.rs` | winit event loop, keybinds, CLI flags, accent selector, frame loop |
+| `src/main.rs` | winit event loop, keybinds, CLI flags, accent selector, overlay timing, frame loop |
 | `src/audio.rs` | PipeWire capture thread, node enumeration, runtime source switching, ring buffer |
 | `src/dsp.rs` | Hann window → FFT → log-spaced spectrum + beat detection (`AudioFeatures`) |
-| `src/render.rs` | wgpu 3D terrain renderer: camera, line mesh, scrolling heightmap (`Renderer`) |
+| `src/nowplaying.rs` | MPRIS/D-Bus thread reading the active player's artist/title |
+| `src/render.rs` | wgpu 3D terrain renderer + glyphon text overlay (`Renderer`) |
 | `src/shaders/terrain.wgsl` | 3D vertex (grid + heightmap) + fragment (accent lines) shader |
+
+## Now-playing overlay
+
+The artist/title of the active media player is read over **MPRIS** (D-Bus), shown centered at
+the top in a monospace font. Works with any MPRIS-capable player (Spotify, browsers, VLC, mpv,
+…). If no player or D-Bus is available it stays hidden — the visualizer is unaffected.
+
+Press **`Space`** to cycle the overlay mode:
+- **occasional** (default) — fades in on track change and roughly every 30 s,
+- **permanent** — always visible,
+- **never** — hidden.
+
+Timing constants (`NP_FADE_IN`, `NP_HOLD`, `NP_CYCLE`) are at the top of `src/main.rs`; the
+font size is the `Metrics` in `Renderer::new` (`src/render.rs`).
 
 ## Tech stack
 
-`wgpu` (Vulkan backend) · `winit` · `pipewire-rs` · `rustfft` · `ringbuf` · `glam` · `bytemuck` ·
-`pollster`. See [`CLAUDE.md`](./CLAUDE.md) for architecture details and version-specific notes.
+`wgpu` (Vulkan backend) · `winit` · `pipewire-rs` · `rustfft` · `ringbuf` · `glam` · `glyphon`
+(text) · `mpris` (D-Bus) · `bytemuck` · `pollster`. See [`CLAUDE.md`](./CLAUDE.md) for
+architecture details and version-specific notes.

@@ -7,7 +7,8 @@ Guidance for AI agents working in this repo. User-facing usage lives in [`README
 A fullscreen Linux/PipeWire audio visualizer in Rust. Captures audio → FFT → log-spaced
 spectrum + beat → **3D scrolling wireframe terrain** (wgpu). Frequency spans the width
 (bass→treble), magnitude is height, time scrolls into the distance. Lines drawn in one
-selectable accent color on black.
+selectable accent color on black. A now-playing **artist/title overlay** (glyphon text) fades
+in periodically, read from the active media player over **MPRIS/D-Bus** (`nowplaying.rs`).
 
 ## Commands
 
@@ -61,6 +62,20 @@ Two threads, joined by one lock-free ring buffer:
   back interpolated by depth) so it fills the viewport at every depth. Aspect is capped at
   `MAX_FILL_ASPECT` so ultrawide screens keep it centered instead of stretching. Shader tapers
   the left/right columns to zero (`edge`) for a borderless, infinite feel.
+
+### Now-playing overlay (`nowplaying.rs` + glyphon in `render.rs`)
+
+- `NowPlaying::start()` spawns a thread polling **MPRIS** (`mpris` crate, libdbus) every ~1.5 s
+  for the active player's artist/title → `Arc<Mutex<Option<String>>>`. Read cheaply via
+  `current()`. Fully optional — if D-Bus/MPRIS is absent the thread logs once and exits.
+- Text is rendered with **glyphon 0.11** (which pins `wgpu 29.0.3` — matches ours, no conflict).
+  `Renderer` owns the `FontSystem`/`SwashCache`/`Viewport`/`TextAtlas`/`TextRenderer`/`Buffer`.
+  Re-shape only when the string changes (`text_cache`); `prepare` before the pass, `render`
+  inside the pass after the terrain, `atlas.trim()` after present.
+- `main.rs` drives timing: show on track change + every `NP_CYCLE`s; `np_alpha()` is the
+  fade-in/hold/fade-out envelope; alpha → text color alpha (skipped entirely when ~0).
+  `Space` cycles `OverlayMode` (occasional → permanent → never). Text is monospace, centered
+  (line `Align::Center` + buffer width = screen), near the top.
 
 ### Critical invariants — do not break
 
