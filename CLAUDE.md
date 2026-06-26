@@ -65,8 +65,10 @@ Two threads, joined by one lock-free ring buffer:
 - **Globe mode** (`G` key, `misc.y` flag): same grid + heightmap + index buffer, but the
   vertex shader branches to wrap the grid onto a sphere (longitude = col/frequency, latitude =
   row/time, height = radial bump) and `render` builds a spinning `proj·view·model` matrix.
-  Terrain-only effects (frustum width, edge taper, distance fade) are skipped (x-ray sphere).
-  No extra pipeline/buffers — just the mode flag and per-mode `view_proj`.
+  Terrain-only effects (frustum width) are skipped. The far hemisphere fades out via alpha
+  (pipeline uses `ALPHA_BLENDING`; opacity = `edge`, driven by `clip.w` camera distance).
+  Mouse orbit/zoom state (`globe_yaw`/`globe_pitch`/`globe_zoom`) lives in `Renderer`, mutated
+  by `globe_rotate`/`globe_zoom` from `main.rs` mouse events; `view_proj` is per-mode.
 
 ### Now-playing overlay (`nowplaying.rs` + glyphon in `render.rs`)
 

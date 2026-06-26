@@ -56,7 +56,8 @@ cargo run --release -- --accent cyan   # start with a specific accent color
 
 Press **`G`** to wrap the same spectrum onto a slowly rotating sphere — a "globe of
 sound" (longitude = frequency, latitude = time, height bumps outward) — and `G` again to
-return to the terrain.
+return to the terrain. In globe view, **drag with the left mouse button to orbit** and
+**scroll to zoom**; the far hemisphere fades out for depth.
 
 ## Audio source selection
 

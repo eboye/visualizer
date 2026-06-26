@@ -67,6 +67,10 @@ pub struct Renderer {
     bind_group: wgpu::BindGroup,
     pub size: winit::dpi::PhysicalSize<u32>,
     head: usize, // ring write position into the heightmap
+    // Globe-mode mouse orbit/zoom state.
+    globe_yaw: f32,
+    globe_pitch: f32,
+    globe_zoom: f32,
     // Now-playing text overlay (glyphon).
     font_system: FontSystem,
     swash_cache: SwashCache,
@@ -267,6 +271,9 @@ impl Renderer {
             bind_group,
             size,
             head: 0,
+            globe_yaw: 0.0,
+            globe_pitch: 0.0,
+            globe_zoom: 1.0,
             font_system,
             swash_cache,
             viewport,
@@ -285,6 +292,17 @@ impl Renderer {
         self.config.width = new_size.width;
         self.config.height = new_size.height;
         self.surface.configure(&self.device, &self.config);
+    }
+
+    /// Globe mode: orbit by a mouse drag delta (pixels).
+    pub fn globe_rotate(&mut self, dx: f32, dy: f32) {
+        self.globe_yaw += dx * 0.005;
+        self.globe_pitch = (self.globe_pitch + dy * 0.005).clamp(-1.3, 1.3);
+    }
+
+    /// Globe mode: zoom by a scroll amount (positive = closer).
+    pub fn globe_zoom(&mut self, scroll: f32) {
+        self.globe_zoom = (self.globe_zoom * (1.0 + scroll * 0.1)).clamp(0.4, 4.0);
     }
 
     /// Camera: raised behind the front edge, looking down the terrain. A subtle
@@ -333,15 +351,13 @@ impl Renderer {
         let width_front = 2.0 * z_front * tan_h * WIDTH_MARGIN;
         let width_back = 2.0 * z_back * tan_h * WIDTH_MARGIN;
 
+        // Mouse-controlled orbit distance (scroll zoom).
+        let globe_dist = GLOBE_EYE_DIST / self.globe_zoom;
         let view_proj = if globe {
-            // Look at a spinning, slightly tilted globe centered at the origin.
-            let view = Mat4::look_at_rh(
-                Vec3::new(0.0, 0.0, -GLOBE_EYE_DIST),
-                Vec3::ZERO,
-                Vec3::Y,
-            );
-            let model =
-                Mat4::from_rotation_x(GLOBE_TILT) * Mat4::from_rotation_y(time * GLOBE_SPIN_SPEED);
+            // Spinning, tilted globe at the origin; mouse drag adds yaw/pitch.
+            let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, -globe_dist), Vec3::ZERO, Vec3::Y);
+            let model = Mat4::from_rotation_x(GLOBE_TILT + self.globe_pitch)
+                * Mat4::from_rotation_y(time * GLOBE_SPIN_SPEED + self.globe_yaw);
             proj * view * model
         } else {
             proj * Mat4::look_at_rh(eye, target, Vec3::Y)
@@ -349,8 +365,8 @@ impl Renderer {
 
         // Globe far-side fade bounds (camera-space distance): the back hemisphere
         // fades toward transparent so it doesn't clutter the near side.
-        let fade_near = GLOBE_EYE_DIST - 0.3;
-        let fade_far = GLOBE_EYE_DIST + 1.6;
+        let fade_near = globe_dist - 0.3;
+        let fade_far = globe_dist + 1.6;
 
         let uniforms = Uniforms {
             view_proj: view_proj.to_cols_array_2d(),

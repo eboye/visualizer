@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Fullscreen, Window, WindowId};
@@ -104,6 +104,8 @@ struct App {
     track_shown_at: Instant,
     overlay_mode: OverlayMode,
     globe: bool,
+    dragging: bool,
+    last_cursor: Option<(f32, f32)>,
 }
 
 impl App {
@@ -126,6 +128,8 @@ impl App {
             track_shown_at: Instant::now(),
             overlay_mode: OverlayMode::Occasional,
             globe: false,
+            dragging: false,
+            last_cursor: None,
         }
     }
 
@@ -191,6 +195,34 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(size) => {
                 if let Some(r) = &mut self.renderer {
                     r.resize(size);
+                }
+            }
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Left,
+                ..
+            } => {
+                self.dragging = state == ElementState::Pressed;
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                let pos = (position.x as f32, position.y as f32);
+                if self.dragging
+                    && self.globe
+                    && let (Some((lx, ly)), Some(r)) = (self.last_cursor, &mut self.renderer)
+                {
+                    r.globe_rotate(pos.0 - lx, pos.1 - ly);
+                }
+                self.last_cursor = Some(pos);
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                if self.globe {
+                    let scroll = match delta {
+                        MouseScrollDelta::LineDelta(_, y) => y,
+                        MouseScrollDelta::PixelDelta(p) => p.y as f32 / 60.0,
+                    };
+                    if let Some(r) = &mut self.renderer {
+                        r.globe_zoom(scroll);
+                    }
                 }
             }
             WindowEvent::KeyboardInput {
