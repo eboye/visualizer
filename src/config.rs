@@ -67,17 +67,24 @@ impl Settings {
                     }
                 }
                 "globe_yaw" => {
-                    if let Ok(v) = val.parse() {
+                    if let Ok(v) = val.parse::<f32>()
+                        && v.is_finite()
+                    {
                         s.globe_yaw = v;
                     }
                 }
                 "globe_pitch" => {
-                    if let Ok(v) = val.parse() {
+                    if let Ok(v) = val.parse::<f32>()
+                        && v.is_finite()
+                    {
                         s.globe_pitch = v;
                     }
                 }
                 "globe_zoom" => {
-                    if let Ok(v) = val.parse() {
+                    if let Ok(v) = val.parse::<f32>()
+                        && v.is_finite()
+                        && v > 0.0
+                    {
                         s.globe_zoom = v;
                     }
                 }

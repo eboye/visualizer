@@ -302,13 +302,17 @@ fn run_audio_loop(
     let current: Rc<RefCell<Held>> = Rc::new(RefCell::new(None));
 
     // Initial connect: autoconnect to default sink monitor or default source.
-    *current.borrow_mut() = connect_stream(
+    let initial = connect_stream(
         &core,
         producer.clone(),
         sample_rate.clone(),
         None,
         capture_system_output,
     );
+    if initial.is_none() {
+        eprintln!("audio: failed to create the initial capture stream");
+    }
+    *current.borrow_mut() = initial;
 
     // Handle runtime re-targeting from the render thread.
     let core_cb = core.clone();
