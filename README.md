@@ -1,15 +1,29 @@
+<div align="center">
+
+<img src="packaging/io.github.eboye.visualizer.svg" alt="Audio Visualizer" width="128" height="128">
+
 # Audio Visualizer
 
-A fullscreen, Winamp/Milkdrop-style music visualizer for **Linux + PipeWire**, written
-in Rust. It captures audio (system output or a microphone), runs an FFT, and renders a
-**3D scrolling wireframe terrain**: frequency spans the width (bass left → treble right),
-magnitude is height, and each frame adds a new row at the front so the landscape flows
-into the distance.
+**A fullscreen Linux/PipeWire music visualizer — a 3D wireframe terrain &amp; globe with neon bloom, in Rust.**
+
+[![CI](https://github.com/eboye/visualizer/actions/workflows/ci.yml/badge.svg)](https://github.com/eboye/visualizer/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/eboye/visualizer?sort=semver)](https://github.com/eboye/visualizer/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platform: Linux](https://img.shields.io/badge/platform-Linux-informational)
+![Built with Rust](https://img.shields.io/badge/built%20with-Rust%20%2B%20wgpu-orange)
+
+<img src="docs/demo.gif" alt="Audio visualizer demo" width="680">
+
+</div>
+
+It captures audio (system output or a microphone), runs an FFT, and renders the spectrum as a
+**3D scrolling wireframe terrain** — frequency across the width (bass → treble), magnitude as
+height, time flowing into the distance — or, with one key, a rotating **globe of sound**.
 
 Lines are drawn in a single **accent color** as thick, soft-edged strokes over a graded
 backdrop, with **neon bloom**, ACES tone-mapping, and **MSAA** (4×/2× where the GPU supports
-it). The accent is selectable at runtime and eases smoothly when changed. The current **song (artist —
-title)** fades in periodically, read from the active media player over MPRIS/D-Bus.
+it). The accent is selectable at runtime and eases smoothly when changed. The current **song
+(artist — title)** fades in periodically, read from the active media player over MPRIS/D-Bus.
 
 ```
 PipeWire capture thread ──(lock-free ring buffer)──► render thread
@@ -21,10 +35,9 @@ PipeWire capture thread ──(lock-free ring buffer)──► render thread
                               wgpu: scrolling heightmap + camera → wireframe line mesh
 ```
 
-## Demo
+## Screenshots
 
 <p align="center">
-  <img src="docs/demo.gif" alt="Audio visualizer demo" width="640"><br>
   <img src="docs/terrain.png" alt="Terrain view" width="420">
   <img src="docs/globe.png" alt="Globe view" width="420">
 </p>
