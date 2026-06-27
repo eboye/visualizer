@@ -16,7 +16,7 @@ env:
 jobs:
   # Portable binary tarball + the raw binary as an artifact for other jobs.
   tarball:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $DEBS
@@ -38,6 +38,7 @@ jobs:
             visualizer-*.tar.gz
             visualizer-*.tar.gz.sha256
 
+  # Debian/Ubuntu .deb on the latest Ubuntu.
   deb:
     runs-on: ubuntu-latest
     steps:
@@ -52,43 +53,47 @@ jobs:
         with:
           files: visualizer_*.deb
 
+  # Fedora/RHEL/openSUSE .rpm, built natively on the latest Fedora.
   rpm:
     runs-on: ubuntu-latest
+    container: fedora:latest
     steps:
+      - run: dnf -y install gcc clang pipewire-devel dbus-devel fontconfig-devel git curl
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $DEBS
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-generate-rpm
+      - name: Install Rust (latest stable)
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: cargo install cargo-generate-rpm
       - run: cargo build --release --locked
       - run: strip -s target/release/visualizer
       - run: cargo generate-rpm
-      - name: Collect
-        run: cp target/generate-rpm/*.rpm "visualizer-${{ github.ref_name }}-x86_64.rpm"
+      - run: cp target/generate-rpm/*.rpm "visualizer-${{ github.ref_name }}-x86_64.rpm"
       - uses: softprops/action-gh-release@v2
         with:
           files: visualizer-*.rpm
 
+  # Arch .pkg.tar.zst on the rolling archlinux image.
   pacman:
     runs-on: ubuntu-latest
     container: archlinux:base-devel
     steps:
-      - run: pacman -Syu --noconfirm git rust clang
+      - run: pacman -Syu --noconfirm git rust clang pipewire dbus fontconfig vulkan-icd-loader libxkbcommon
       - uses: actions/checkout@v4
-      - name: Build package as non-root
+      - name: Build package (makepkg runs as non-root)
         run: |
           useradd -m builder
           cp packaging/PKGBUILD /home/builder/PKGBUILD
           chown -R builder:builder /home/builder
-          su builder -c 'cd /home/builder && makepkg -s --noconfirm --skipchecksums'
+          su builder -c 'cd /home/builder && makepkg --noconfirm --skipchecksums'
           cp /home/builder/*.pkg.tar.zst .
       - uses: softprops/action-gh-release@v2
         with:
           files: "*.pkg.tar.zst"
 
+  # AppImage (runs on most distros), built on the latest Ubuntu.
   appimage:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $DEBS libfuse2
@@ -112,6 +117,7 @@ jobs:
         with:
           files: "*.AppImage"
 
+  # Flatpak bundle, built against the freedesktop runtime from the prebuilt binary.
   flatpak:
     runs-on: ubuntu-latest
     needs: tarball

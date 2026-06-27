@@ -7,7 +7,7 @@ arch=('x86_64')
 url="https://github.com/eboye/visualizer"
 license=('MIT')
 depends=('pipewire' 'dbus' 'fontconfig' 'vulkan-icd-loader' 'libxkbcommon')
-makedepends=('rust' 'cargo' 'clang')
+makedepends=('rust' 'clang')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/eboye/visualizer/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 
