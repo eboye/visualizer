@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.eboye.visualizer</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Audio Visualizer</name>
+  <summary>Fullscreen PipeWire audio visualizer</summary>
+  <description>
+    <p>
+      A fullscreen Linux/PipeWire audio visualizer: the spectrum is rendered as a 3D
+      scrolling wireframe terrain (or a rotating globe), with HDR bloom, a selectable
+      accent color, and an optional now-playing overlay read over MPRIS.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.eboye.visualizer.desktop</launchable>
+  <url type="homepage">https://github.com/eboye/visualizer</url>
+  <url type="bugtracker">https://github.com/eboye/visualizer/issues</url>
+  <developer id="io.github.eboye">
+    <name>eboye</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-06-27"/>
+  </releases>
+</component>

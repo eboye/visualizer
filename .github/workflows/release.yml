@@ -11,36 +11,125 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  DEBS: pkg-config clang libclang-dev libpipewire-0.3-dev libdbus-1-dev libfontconfig1-dev
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  # Portable binary tarball + the raw binary as an artifact for other jobs.
+  tarball:
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config clang libclang-dev \
-            libpipewire-0.3-dev libdbus-1-dev libfontconfig1-dev
-
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $DEBS
       - uses: dtolnay/rust-toolchain@stable
-
       - uses: Swatinem/rust-cache@v2
-
-      - name: Build (release)
-        run: cargo build --release --locked
-
+      - run: cargo build --release --locked
       - name: Package
         run: |
           tar -C target/release -czf "visualizer-${{ github.ref_name }}-linux-x86_64.tar.gz" visualizer
           sha256sum "visualizer-${{ github.ref_name }}-linux-x86_64.tar.gz" > "visualizer-${{ github.ref_name }}-linux-x86_64.tar.gz.sha256"
-
-      - name: Publish release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary
+          path: target/release/visualizer
+      - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
             visualizer-*.tar.gz
             visualizer-*.tar.gz.sha256
+
+  deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $DEBS
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
+      - run: cargo deb --output "visualizer_${{ github.ref_name }}_amd64.deb"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: visualizer_*.deb
+
+  rpm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $DEBS
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-generate-rpm
+      - run: cargo build --release --locked
+      - run: strip -s target/release/visualizer
+      - run: cargo generate-rpm
+      - name: Collect
+        run: cp target/generate-rpm/*.rpm "visualizer-${{ github.ref_name }}-x86_64.rpm"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: visualizer-*.rpm
+
+  pacman:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - run: pacman -Syu --noconfirm git rust clang
+      - uses: actions/checkout@v4
+      - name: Build package as non-root
+        run: |
+          useradd -m builder
+          cp packaging/PKGBUILD /home/builder/PKGBUILD
+          chown -R builder:builder /home/builder
+          su builder -c 'cd /home/builder && makepkg -s --noconfirm --skipchecksums'
+          cp /home/builder/*.pkg.tar.zst .
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: "*.pkg.tar.zst"
+
+  appimage:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $DEBS libfuse2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: Assemble AppDir
+        run: |
+          install -Dm755 target/release/visualizer AppDir/usr/bin/visualizer
+          install -Dm644 packaging/io.github.eboye.visualizer.desktop AppDir/usr/share/applications/io.github.eboye.visualizer.desktop
+          install -Dm644 packaging/io.github.eboye.visualizer.svg AppDir/usr/share/icons/hicolor/scalable/apps/io.github.eboye.visualizer.svg
+      - name: Build AppImage
+        run: |
+          curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy
+          ./linuxdeploy --appdir AppDir --output appimage \
+            --desktop-file AppDir/usr/share/applications/io.github.eboye.visualizer.desktop \
+            --icon-file packaging/io.github.eboye.visualizer.svg
+          mv *.AppImage "Audio_Visualizer-${{ github.ref_name }}-x86_64.AppImage"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: "*.AppImage"
+
+  flatpak:
+    runs-on: ubuntu-latest
+    needs: tarball
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:freedesktop-24.08
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: binary
+          path: packaging
+      - run: chmod +x packaging/visualizer
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: "Audio_Visualizer-${{ github.ref_name }}-x86_64.flatpak"
+          manifest-path: packaging/io.github.eboye.visualizer.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: "*.flatpak"

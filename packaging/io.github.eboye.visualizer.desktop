@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Audio Visualizer
+GenericName=Audio Visualizer
+Comment=Fullscreen PipeWire audio visualizer — 3D wireframe terrain & globe
+Exec=visualizer
+Icon=io.github.eboye.visualizer
+Terminal=false
+Categories=AudioVideo;Audio;
+Keywords=audio;visualizer;music;pipewire;spectrum;

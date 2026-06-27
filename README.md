@@ -139,8 +139,18 @@ architecture details and version-specific notes.
 
 ## Releases
 
-Tagged builds are produced by CI: pushing a `v*` tag builds an optimized Linux x86_64 binary
-and publishes it (with a SHA-256 checksum) to a GitHub Release. See [Releases](https://github.com/eboye/visualizer/releases).
+Pushing a `v*` tag triggers CI to build and attach packages for the major Linux formats to a
+[GitHub Release](https://github.com/eboye/visualizer/releases):
+
+- portable **tarball** (`.tar.gz` + SHA-256)
+- **Debian/Ubuntu** `.deb`
+- **Fedora/RHEL/openSUSE** `.rpm`
+- **Arch** `.pkg.tar.zst`
+- **AppImage** (runs on most distros)
+- **Flatpak** bundle (`.flatpak`)
+
+Runtime needs PipeWire, a Vulkan driver, and a Wayland/X11 session (the `.deb`/`.rpm`/pacman
+packages declare these; AppImage/Flatpak bundle what they can).
 
 ## License
 

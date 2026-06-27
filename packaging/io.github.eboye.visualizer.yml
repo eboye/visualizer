@@ -1,0 +1,32 @@
+app-id: io.github.eboye.visualizer
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: visualizer
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri                       # GPU / Vulkan
+  - --socket=session-bus               # MPRIS now-playing
+  - --filesystem=xdg-run/pipewire-0:ro # PipeWire audio
+
+modules:
+  - name: visualizer
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 visualizer /app/bin/visualizer
+      - install -Dm644 io.github.eboye.visualizer.desktop /app/share/applications/io.github.eboye.visualizer.desktop
+      - install -Dm644 io.github.eboye.visualizer.svg /app/share/icons/hicolor/scalable/apps/io.github.eboye.visualizer.svg
+      - install -Dm644 io.github.eboye.visualizer.metainfo.xml /app/share/metainfo/io.github.eboye.visualizer.metainfo.xml
+    sources:
+      # The release workflow drops the prebuilt binary next to this manifest.
+      - type: file
+        path: visualizer
+      - type: file
+        path: io.github.eboye.visualizer.desktop
+      - type: file
+        path: io.github.eboye.visualizer.svg
+      - type: file
+        path: io.github.eboye.visualizer.metainfo.xml

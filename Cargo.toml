@@ -6,6 +6,31 @@ license = "MIT"
 description = "Fullscreen Linux/PipeWire audio visualizer in Rust — 3D wireframe terrain & globe with HDR bloom (wgpu)"
 repository = "https://github.com/eboye/visualizer"
 
+# ---- Packaging metadata ----------------------------------------------------
+[package.metadata.deb]
+section = "sound"
+priority = "optional"
+extended-description = "Fullscreen Linux/PipeWire audio visualizer: the spectrum as a 3D scrolling wireframe terrain or rotating globe, with HDR bloom, a selectable accent color, and a now-playing overlay."
+assets = [
+    ["target/release/visualizer", "usr/bin/", "755"],
+    ["packaging/io.github.eboye.visualizer.desktop", "usr/share/applications/", "644"],
+    ["packaging/io.github.eboye.visualizer.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["packaging/io.github.eboye.visualizer.metainfo.xml", "usr/share/metainfo/", "644"],
+    ["LICENSE", "usr/share/doc/visualizer/", "644"],
+    ["README.md", "usr/share/doc/visualizer/", "644"],
+]
+
+[package.metadata.generate-rpm]
+# Runtime libraries resolved automatically from the binary's ELF needs.
+auto-req = "builtin"
+assets = [
+    { source = "target/release/visualizer", dest = "/usr/bin/visualizer", mode = "755" },
+    { source = "packaging/io.github.eboye.visualizer.desktop", dest = "/usr/share/applications/io.github.eboye.visualizer.desktop", mode = "644" },
+    { source = "packaging/io.github.eboye.visualizer.svg", dest = "/usr/share/icons/hicolor/scalable/apps/io.github.eboye.visualizer.svg", mode = "644" },
+    { source = "packaging/io.github.eboye.visualizer.metainfo.xml", dest = "/usr/share/metainfo/io.github.eboye.visualizer.metainfo.xml", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/doc/visualizer/LICENSE", mode = "644" },
+]
+
 [dependencies]
 bytemuck = { version = "1.25.0", features = ["derive"] }
 glam = "0.33.1"
