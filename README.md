@@ -6,11 +6,11 @@
 
 **A fullscreen Linux/PipeWire music visualizer — a 3D wireframe terrain &amp; globe with neon bloom, in Rust.**
 
-[![CI](https://github.com/eboye/visualizer/actions/workflows/ci.yml/badge.svg)](https://github.com/eboye/visualizer/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/eboye/visualizer?sort=semver)](https://github.com/eboye/visualizer/releases/latest)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Platform: Linux](https://img.shields.io/badge/platform-Linux-informational)
-![Built with Rust](https://img.shields.io/badge/built%20with-Rust%20%2B%20wgpu-orange)
+[![CI](https://img.shields.io/github/actions/workflow/status/eboye/visualizer/ci.yml?style=for-the-badge&label=CI&logo=github)](https://github.com/eboye/visualizer/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/eboye/visualizer?sort=semver&style=for-the-badge&logo=github)](https://github.com/eboye/visualizer/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
+![Platform: Linux](https://img.shields.io/badge/platform-Linux-informational?style=for-the-badge&logo=linux&logoColor=white)
+![Built with Rust + wgpu](https://img.shields.io/badge/Rust%20%2B%20wgpu-orange?style=for-the-badge&logo=rust&logoColor=white)
 
 <img src="docs/demo.gif" alt="Audio visualizer demo" width="680">
 
@@ -41,6 +41,22 @@ PipeWire capture thread ──(lock-free ring buffer)──► render thread
   <img src="docs/terrain.png" alt="Terrain view" width="420">
   <img src="docs/globe.png" alt="Globe view" width="420">
 </p>
+
+## Install
+
+Grab a package for your distro from the
+[latest release](https://github.com/eboye/visualizer/releases/latest):
+
+| Distro | File | Install |
+|--------|------|---------|
+| Debian / Ubuntu | `*_amd64.deb` | `sudo apt install ./visualizer_*_amd64.deb` |
+| Fedora / RHEL / openSUSE | `*.rpm` | `sudo dnf install ./visualizer-*.rpm` |
+| Arch | `*.pkg.tar.zst` | `sudo pacman -U visualizer-*.pkg.tar.zst` |
+| Any (AppImage) | `*.AppImage` | `chmod +x *.AppImage && ./*.AppImage` |
+| Any (Flatpak) | `*.flatpak` | `flatpak install --user *.flatpak` |
+| Portable | `*.tar.gz` | extract, then run `./visualizer` |
+
+Or build from source (see below).
 
 ## Requirements
 
