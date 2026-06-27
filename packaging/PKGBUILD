@@ -6,6 +6,9 @@ pkgdesc="Fullscreen PipeWire audio visualizer — 3D wireframe terrain & globe w
 arch=('x86_64')
 url="https://github.com/eboye/visualizer"
 license=('MIT')
+# Disable makepkg LTO: its -flto CFLAGS turn the libspa-sys C shim into LTO
+# bitcode that the Rust link step (lld, no LTO) can't resolve.
+options=(!lto !debug)
 depends=('pipewire' 'dbus' 'fontconfig' 'vulkan-icd-loader' 'libxkbcommon')
 makedepends=('rust' 'clang')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/eboye/visualizer/archive/refs/tags/v$pkgver.tar.gz")
