@@ -21,6 +21,19 @@ PipeWire capture thread ──(lock-free ring buffer)──► render thread
                               wgpu: scrolling heightmap + camera → wireframe line mesh
 ```
 
+## Demo
+
+<p align="center">
+  <img src="docs/demo.gif" alt="Audio visualizer demo" width="640"><br>
+  <img src="docs/terrain.png" alt="Terrain view" width="420">
+  <img src="docs/globe.png" alt="Globe view" width="420">
+</p>
+
+> Capturing these needs the app running on a real GPU/audio session. On GNOME (Wayland) press
+> **Ctrl+Alt+Shift+R** to record a short clip, then turn it into the GIF above with the included
+> helper: `docs/gifify.sh ~/Videos/<recording>.webm docs/demo.gif`. Drop `terrain.png` /
+> `globe.png` (any screenshot tool) into `docs/` and they'll render here.
+
 ## Requirements
 
 - **Linux with PipeWire** running (the capture backend is PipeWire-native)
